@@ -1,4 +1,5 @@
 {
+  "description": "TradingView connector scaffold that currently emits configured symbol/interval/session payloads and is ready for live TradingView API integration.",
   "domainCategory": "Trading",
   "subjectiveTechnologyElement": "DataSources",
   "publisher": "BrainBoost Ltd.",
@@ -9,7 +10,7 @@
     {
       "type": "splitList",
       "title": "Trading View Realtime",
-      "text": "Subjective datasource implementation for SubjectiveTradingViewRealtimeDataSource.",
+      "text": "TradingView connector scaffold that currently emits configured symbol/interval/session payloads and is ready for live TradingView API integration.",
       "image": {
         "src": "/subjective_trading_view_realtime_datasource/icon.svg",
         "alt": "Trading View Realtime icon"
