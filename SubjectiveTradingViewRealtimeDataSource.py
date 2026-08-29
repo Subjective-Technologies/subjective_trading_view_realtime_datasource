@@ -1,52 +1,53 @@
-import time
-from subjective_abstract_data_source_package.SubjectiveDataSource import SubjectiveDataSource
-from brainboost_data_source_logger_package.BBLogger import BBLogger
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from subjective_abstract_data_source_package import SubjectiveDataSource
+
+from trading_contracts.market import utc_now
+from trading_contracts.plugin_support import icon_for
 
 
 class SubjectiveTradingViewRealtimeDataSource(SubjectiveDataSource):
-    connection_type = "TradingView"
-    connection_fields = ["symbol", "interval", "session"]
-    icon_svg = "<svg width='24' height='24' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'><circle cx='12' cy='12' r='9' fill='#2d6a4f'/><path d='M7 12h10' stroke='#ffffff' stroke-width='2'/></svg>"
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
-    def get_icon(self):
-        return self.icon_svg
+    @classmethod
+    def connection_schema(cls):
+        return {"webhook_token": {"type": "password", "label": "Webhook Token"}}
 
-    def get_connection_data(self):
-        return {"connection_type": self.connection_type, "fields": list(self.connection_fields)}
+    @classmethod
+    def request_schema(cls):
+        return {"webhook_token": {"type": "password", "label": "Webhook Token"}, "alert": {"type": "object", "label": "TradingView Alert"}, "alerts": {"type": "array", "label": "Injected Alerts"}}
 
-    def _get_param(self, key, default=None):
-        return self.params.get(key, default)
+    @classmethod
+    def output_schema(cls):
+        return {"events": {"type": "array", "label": "Signal Events"}, "error": {"type": "text", "label": "Error"}}
 
-    def _emit_result(self, result):
-        if result is None:
-            self.set_total_items(0)
-            self.set_processed_items(0)
-            return
-        if isinstance(result, (list, tuple)):
-            self.set_total_items(len(result))
-            self.set_processed_items(0)
-            for item in result:
-                self.update(item)
-                self.increment_processed_items()
-            return
-        self.set_total_items(1)
-        self.set_processed_items(0)
-        self.update(result)
-        self.increment_processed_items()
+    @classmethod
+    def icon(cls):
+        return icon_for(__file__)
 
-    def fetch(self):
-        start = time.perf_counter()
-        if self.status_callback:
-            self.status_callback(self.get_name(), "fetch_started")
-        symbol = self._get_param("symbol")
-        interval = self._get_param("interval")
-        session = self._get_param("session")
-        self._emit_result({"symbol": symbol, "interval": interval, "session": session, "status": "tradingview_placeholder"})
-        duration = time.perf_counter() - start
-        self.set_total_processing_time(duration)
-        self.set_fetch_completed(True)
-        if self.progress_callback:
-            self.progress_callback(self.get_name(), self.get_total_to_process(), self.get_total_processed(), self.estimated_remaining_time())
-        if self.status_callback:
-            self.status_callback(self.get_name(), "fetch_completed")
-        BBLogger.log(f"Fetch completed for {self.get_name()}")
+    def supports_streaming(self):
+        return True
+
+    @staticmethod
+    def _normalize(alert):
+        alert = alert if isinstance(alert, dict) else {"text": str(alert)}
+        return {"kind": "signal", "source": "tradingview_webhook", "channel": str(alert.get("channel", "tradingview")), "ts": str(alert.get("ts") or utc_now()), "text": str(alert.get("text") or alert.get("message") or ""), "structured": alert.get("structured")}
+
+    def run(self, request):
+        request = request or {}
+        configured_token = str(self._connection.get("webhook_token") or "")
+        if configured_token and str(request.get("webhook_token") or "") != configured_token:
+            return {"events": [], "error": "invalid webhook token"}
+        alerts = request.get("alerts")
+        if alerts is None and request.get("alert") is not None:
+            alerts = [request["alert"]]
+        if alerts is None:
+            return {"events": [], "error": "No webhook alert supplied; public scraping is intentionally unsupported"}
+        return {"events": [self._normalize(alert) for alert in alerts], "error": ""}
+
+    def stream(self, request):
+        yield self.run(request or {})
